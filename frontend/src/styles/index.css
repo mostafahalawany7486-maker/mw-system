@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-ink-200 dark:border-ink-800;
+  }
+  body {
+    @apply antialiased;
+  }
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-ink-50 dark:ring-offset-ink-950;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply btn bg-white dark:bg-ink-800 text-ink-800 dark:text-ink-100 border border-ink-200 dark:border-ink-700 hover:bg-ink-50 dark:hover:bg-ink-700;
+  }
+  .btn-danger {
+    @apply btn bg-rust-500 text-white hover:bg-rust-600;
+  }
+  .input {
+    @apply w-full rounded-md border border-ink-200 dark:border-ink-700 bg-white dark:bg-ink-900 px-3 py-2 text-sm placeholder:text-ink-400 focus:border-brand-500 focus:ring-1 focus:ring-brand-500;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-700 dark:text-ink-300 mb-1.5;
+  }
+  .card {
+    @apply bg-white dark:bg-ink-900 rounded-card shadow-card border border-ink-100 dark:border-ink-800;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-active {
+    @apply badge bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300;
+  }
+  .badge-inactive {
+    @apply badge bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400;
+  }
+  .badge-warn {
+    @apply badge bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-500;
+  }
+  .table-shell {
+    @apply w-full text-sm border-collapse;
+  }
+  .table-shell th {
+    @apply text-left text-xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-400 px-4 py-3 border-b border-ink-100 dark:border-ink-800;
+  }
+  .table-shell td {
+    @apply px-4 py-3 border-b border-ink-50 dark:border-ink-800/60;
+  }
+  .table-shell tr:hover td {
+    @apply bg-ink-50/60 dark:bg-ink-800/40;
+  }
+}
