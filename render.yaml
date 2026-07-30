@@ -38,7 +38,7 @@ databases:
   - name: pms-db
     databaseName: pms_db
     user: pms_user
-    plan: free
+    plan: starter
     postgresMajorVersion: "16"
     ipAllowList: []
 
