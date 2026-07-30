@@ -1,0 +1,33 @@
+# Backend
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+backend/storage/
+backend/.env
+backend/.env.local
+.pytest_cache/
+*.db
+*.sqlite3
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/build/
+
+# Env files (any environment, any location) — never commit real secrets.
+# .env.example files are intentionally NOT ignored (see backend/.env.example,
+# frontend/.env.example) — they contain placeholder values only.
+.env
+.env.*.local
+
+# General
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp

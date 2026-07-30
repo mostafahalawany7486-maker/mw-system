@@ -1,0 +1,114 @@
+# Render Blueprint — see https://render.com/docs/blueprint-spec
+#
+# Deploys three resources:
+#   1. pms-db        — managed Postgres
+#   2. pms-backend    — FastAPI, built from backend/Dockerfile (same image
+#                        used for local Docker dev — nothing Render-specific
+#                        was added to it)
+#   3. pms-frontend   — the React app, built as a static site (no Docker/
+#                        nginx container needed for a purely static SPA —
+#                        cheaper and simpler than the frontend/Dockerfile's
+#                        nginx production target, which remains available
+#                        for a non-Render Docker deployment)
+#
+# IMPORTANT — read before deploying:
+#   Render normally assigns each service the URL https://<name>.onrender.com,
+#   but appends a random suffix instead if that exact name is already taken
+#   by someone else on the platform. BACKEND_CORS_ORIGINS, PUBLIC_APP_URL,
+#   and VITE_API_BASE_URL below assume the exact names "pms-backend" and
+#   "pms-frontend" were available. After the first deploy, open both
+#   services in the Render dashboard and confirm their real URLs match —
+#   if not, update those three env vars to the real ones and redeploy.
+#
+#   FIRST_ADMIN_PASSWORD and SECRET_KEY are intentionally NOT hardcoded
+#   here (see envVars below) — Render will prompt you to set the admin
+#   password yourself during Blueprint creation, and generates a random
+#   SECRET_KEY automatically. Never reuse the demo password from
+#   backend/.env.example on a real deployment.
+#
+#   Free-tier web services spin down after 15 minutes of inactivity and
+#   take ~30-60s to wake on the next request — expected on `plan: free`,
+#   not a bug. Free-tier disk is also ephemeral: local file storage
+#   (STORAGE_BACKEND=local, the default here) does NOT persist across
+#   deploys/restarts. For real attachment persistence, switch
+#   STORAGE_BACKEND to azure_blob (already supported, see backend/.env.example)
+#   or add a Render persistent disk on a paid plan.
+
+databases:
+  - name: pms-db
+    databaseName: pms_db
+    user: pms_user
+    plan: free
+    postgresMajorVersion: "16"
+    ipAllowList: []
+
+services:
+  - type: web
+    name: pms-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Overrides the Dockerfile's CMD to run migrations and seed data
+    # before starting the server — same sequence docker-compose.yml
+    # already uses for local dev (alembic upgrade head && python seed.py),
+    # just also on Render. Safe to run on every boot: both are
+    # idempotent (migrations no-op if already applied; seed.py checks
+    # "already exists, skipping" before inserting anything).
+    dockerCommand: >
+      sh -c "alembic upgrade head && python seed.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+    healthCheckPath: /health
+    envVars:
+      - key: APP_NAME
+        value: Property Management System
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pms-db
+          property: connectionString
+      - key: BACKEND_CORS_ORIGINS
+        value: https://pms-frontend.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://pms-frontend.onrender.com
+      - key: STORAGE_BACKEND
+        value: local
+      - key: LOCAL_STORAGE_PATH
+        value: ./storage
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "25"
+      - key: FIRST_ADMIN_EMAIL
+        value: admin@pms-demo.com
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false
+
+  - type: web
+    name: pms-frontend
+    runtime: static
+    plan: free
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://pms-backend.onrender.com/api/v1
