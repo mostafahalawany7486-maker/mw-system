@@ -41,4 +41,20 @@ databases:
     plan: free
     postgresMajorVersion: "16"
     ipAllowList: []
-
+services:
+  - type: web
+    name: pms-backend
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: >
+      sh -c "alembic upgrade head && python seed.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+    healthCheckPath: /health
+    envVars:
+      - key: APP_NAME
+        value: Property Management System
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
