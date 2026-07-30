@@ -46,7 +46,7 @@ services:
   - type: web
     name: pms-backend
     runtime: docker
-    plan: free
+    plan: starter
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     # Overrides the Dockerfile's CMD to run migrations and seed data
