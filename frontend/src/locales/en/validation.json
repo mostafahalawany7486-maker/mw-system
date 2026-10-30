@@ -1,0 +1,16 @@
+{
+  "required": "This field is required.",
+  "invalidEmail": "Enter a valid email address.",
+  "invalidPhone": "Enter a valid phone number.",
+  "mustBePositive": "This value must be greater than 0.",
+  "mustBeNonNegative": "This value cannot be negative.",
+  "endDateBeforeStart": "End date must be after the start date.",
+  "invalidDate": "Enter a valid date.",
+  "tooShort": "This value is too short.",
+  "tooLong": "This value is too long.",
+  "passwordMismatch": "Passwords do not match.",
+  "passwordTooWeak": "Password must be at least 8 characters.",
+  "selectAnOption": "Please select an option.",
+  "notBalanced": "Debits and credits must be equal.",
+  "fixErrorsBelow": "Please fix the errors below before continuing."
+}

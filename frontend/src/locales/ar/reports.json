@@ -1,0 +1,29 @@
+{
+  "title": "التقارير",
+  "description": "تحليلات مالية وتشغيلية وشاملة للمحفظة عبر الأعمال.",
+  "tabs": {
+    "dashboard": "تحليلات لوحة التحكم",
+    "financial": "المالية",
+    "income": "الدخل",
+    "expenses": "المصروفات",
+    "profit": "الربح",
+    "occupancy": "الإشغال",
+    "units": "الوحدات",
+    "vacancy": "الشواغر",
+    "properties": "العقارات",
+    "tenants": "المستأجرون",
+    "owners": "الملاك",
+    "leases": "عقود الإيجار",
+    "maintenance": "الصيانة",
+    "collections": "التحصيلات",
+    "outstanding": "المستحقات",
+    "expirations": "انتهاء العقود",
+    "schedules": "التصدير المجدول",
+    "ownerBalance": "أرصدة الملّاك",
+    "tenantLedger": "دفتر أستاذ المستأجر",
+    "securityDeposits": "التأمينات",
+    "renewedContracts": "العقود المجدّدة",
+    "topTenants": "أفضل المستأجرين",
+    "repeatedLatePayers": "المتأخرون المتكررون"
+  }
+}

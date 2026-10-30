@@ -1,0 +1,13 @@
+{
+  "_note": "No email-sending feature exists in this codebase yet (verified during the i18n audit — EmailStr is only used to validate email address fields, there's no SMTP integration or template rendering). These keys are staged so that whenever email notifications are built, they have a ready-made, unlimited-language-ready translation namespace to consume immediately.",
+  "greeting": "Hello {{name}},",
+  "paymentReminderSubject": "Payment Reminder",
+  "paymentReminderBody": "This is a reminder that your payment is due soon.",
+  "leaseExpirySubject": "Lease Renewal Reminder",
+  "leaseExpiryBody": "Your lease is approaching its end date. Please contact us to discuss renewal.",
+  "maintenanceUpdateSubject": "Maintenance Request Update",
+  "maintenanceUpdateBody": "There's an update on your maintenance request.",
+  "regards": "Best regards,",
+  "companySignature": "The Property Management Team",
+  "unsubscribe": "To stop receiving these emails, contact your property manager."
+}

@@ -1,0 +1,29 @@
+{
+  "title": "Reports",
+  "description": "Financial, operational, and portfolio analytics across the business.",
+  "tabs": {
+    "dashboard": "Dashboard Analytics",
+    "financial": "Financial",
+    "income": "Income",
+    "expenses": "Expenses",
+    "profit": "Profit",
+    "occupancy": "Occupancy",
+    "units": "Units",
+    "vacancy": "Vacancy",
+    "properties": "Properties",
+    "tenants": "Tenants",
+    "owners": "Owners",
+    "leases": "Leases",
+    "maintenance": "Maintenance",
+    "collections": "Collections",
+    "outstanding": "Outstanding",
+    "expirations": "Contract Expirations",
+    "schedules": "Scheduled Exports",
+    "ownerBalance": "Owner Balances",
+    "tenantLedger": "Tenant Ledger",
+    "securityDeposits": "Security Deposits",
+    "renewedContracts": "Renewed Contracts",
+    "topTenants": "Top Tenants",
+    "repeatedLatePayers": "Repeated Late Payers"
+  }
+}

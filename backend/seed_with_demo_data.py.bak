@@ -1,0 +1,1063 @@
+"""
+Seed data for Phase 1. Run with: python seed.py
+Idempotent: safe to run multiple times (checks for existing records first).
+"""
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from app.core.database import SessionLocal
+from app.core.security import hash_password
+from app.core.config import settings
+from app.models.user import User, Role, Permission
+from app.models.organization import Country, City, Currency, CompanyProfile, Branch, SystemSetting
+from app.models.owner import Owner, OwnerAddress, OwnerBankAccount, OwnerContact
+from app.models.lease import LeaseAgreement, LeaseStatus
+from app.models.property import Property, Amenity, Floor
+from app.models.tenant import Tenant, TenantContact, TenantEmergencyContact
+from app.models.rental import RentalContract, RentalContractStatus, RentalPaymentInstallment, RentalInstallmentStatus
+import uuid
+from app.models.financial import FinancialAccount, Transaction, TransactionType, TransactionDirection, Receipt, Invoice, InvoiceStatus
+from app.models.maintenance import (
+    Contractor, Technician, MaintenanceRequest, MaintenanceRequestStatus, MaintenancePriority,
+    MaintenanceMaterial, MaintenanceLaborCost,
+)
+from app.models.maintenance_contract import MaintenanceContract, MaintenanceContractStatus
+from app.models.accounting import (
+    ChartOfAccount, CostCenter, VatRate, PostingRule, JournalEntry, JournalEntryLine,
+    EntryStatus, SourceType,
+)
+from app.models.reports import ReportSchedule, ReportFrequency, ReportExportFormat
+
+# ---------------------------------------------------------------------------
+# Permission catalog. Codes follow 'module.action'. Every module built in
+# this and future phases should register its permissions here.
+# ---------------------------------------------------------------------------
+MODULES = [
+    "users", "roles", "branches", "countries", "cities", "currencies",
+    "company", "settings", "audit", "owners", "leases", "properties", "tenants", "rentals", "financial", "maintenance", "accounting", "reports",
+    "rent_cycles", "rent_vouchers", "payments", "owner_ledger", "occupancy",
+]
+ACTIONS = ["view", "create", "edit", "delete"]
+
+SYSTEM_ROLES = [
+    {"name": "Administrator", "description": "Full system access", "is_system_role": True, "all_permissions": True},
+    {"name": "Branch Manager", "description": "Manages a single branch's operations", "is_system_role": True,
+     "permission_codes": [
+         "users.view", "branches.view", "countries.view", "cities.view",
+         "currencies.view", "company.view", "settings.view",
+         "owners.view", "owners.create", "owners.edit",
+         "leases.view", "leases.create", "leases.edit",
+         "properties.view", "properties.create", "properties.edit",
+         "tenants.view", "tenants.create", "tenants.edit",
+         "rentals.view", "rentals.create", "rentals.edit",
+         "financial.view", "financial.create", "financial.edit",
+         "maintenance.view", "maintenance.create", "maintenance.edit",
+         "accounting.view", "reports.view", "reports.create", "reports.edit", "reports.delete",
+         "rent_cycles.view", "rent_cycles.create", "rent_cycles.edit",
+         "rent_vouchers.view", "rent_vouchers.create", "rent_vouchers.edit",
+         "payments.view", "payments.create", "payments.edit",
+         "owner_ledger.view", "owner_ledger.create", "owner_ledger.edit",
+         "occupancy.view", "occupancy.create", "occupancy.edit",
+     ]},
+    {"name": "Staff", "description": "Standard operational staff member", "is_system_role": True,
+     "permission_codes": ["branches.view", "countries.view", "cities.view", "currencies.view", "company.view", "owners.view", "leases.view", "properties.view", "tenants.view", "rentals.view", "financial.view", "maintenance.view", "maintenance.create", "reports.view", "rent_cycles.view", "rent_vouchers.view", "rent_vouchers.create", "payments.view", "payments.create", "owner_ledger.view", "occupancy.view", "occupancy.edit"]},
+]
+
+COUNTRIES = [
+    {"name": "United States", "iso_code2": "US", "iso_code3": "USA", "phone_code": "+1"},
+    {"name": "United Arab Emirates", "iso_code2": "AE", "iso_code3": "ARE", "phone_code": "+971"},
+    {"name": "United Kingdom", "iso_code2": "GB", "iso_code3": "GBR", "phone_code": "+44"},
+    {"name": "Kuwait", "iso_code2": "KW", "iso_code3": "KWT", "phone_code": "+965"},
+]
+
+CITIES = {
+    "United States": ["New York", "Los Angeles", "Chicago"],
+    "United Arab Emirates": ["Dubai", "Abu Dhabi"],
+    "United Kingdom": ["London", "Manchester"],
+    "Kuwait": ["Kuwait City", "Hawalli", "Salmiya"],
+}
+
+CURRENCIES = [
+    {"code": "USD", "name": "US Dollar", "symbol": "$", "is_base_currency": True, "exchange_rate_to_base": 1.0},
+    {"code": "AED", "name": "UAE Dirham", "symbol": "د.إ", "is_base_currency": False, "exchange_rate_to_base": 3.6725},
+    {"code": "GBP", "name": "British Pound", "symbol": "£", "is_base_currency": False, "exchange_rate_to_base": 0.79},
+    # Kuwaiti Dinar is the strongest-valued currency in circulation, so
+    # its rate-to-base (USD) is well below 1, unlike AED/GBP above —
+    # this is also the currency app/core/number_to_words.py's
+    # amount_to_words() already defaults to naming ("Kuwaiti Dinars" /
+    # "دينار كويتي") on every printed Rental Receipt, so seeding it here
+    # makes that wording match a currency that actually exists in the
+    # system instead of floating disconnected from Countries/Currencies.
+    {"code": "KWD", "name": "Kuwaiti Dinar", "symbol": "د.ك", "is_base_currency": False, "exchange_rate_to_base": 0.3080},
+]
+
+SYSTEM_SETTINGS = [
+    {"key": "date_format", "value": "YYYY-MM-DD", "value_type": "string", "category": "general", "description": "Default date display format"},
+    {"key": "theme_default", "value": "light", "value_type": "string", "category": "appearance", "description": "Default UI theme for new users"},
+    {"key": "session_timeout_minutes", "value": "30", "value_type": "number", "category": "security", "description": "Idle session timeout"},
+    {"key": "company_name_display", "value": "PMS Leasing Co.", "value_type": "string", "category": "general", "description": "Fallback display name before company profile is set"},
+]
+
+AMENITIES = [
+    {"name": "Swimming Pool", "category": "comfort"},
+    {"name": "Gym", "category": "comfort"},
+    {"name": "Parking", "category": "utility"},
+    {"name": "Elevator", "category": "utility"},
+    {"name": "24/7 Security", "category": "safety"},
+    {"name": "CCTV", "category": "safety"},
+    {"name": "Central AC", "category": "comfort"},
+    {"name": "Balcony", "category": "comfort"},
+    {"name": "Furnished", "category": "comfort"},
+    {"name": "Pet Friendly", "category": "policy"},
+    {"name": "Loading Dock", "category": "utility"},
+    {"name": "Fire Safety System", "category": "safety"},
+]
+
+
+def run():
+    db = SessionLocal()
+    try:
+        # ---------------- Permissions ----------------
+        existing_codes = {p.code for p in db.query(Permission).all()}
+        for module in MODULES:
+            for action in ACTIONS:
+                code = f"{module}.{action}"
+                if code not in existing_codes:
+                    db.add(Permission(code=code, module=module, action=action, description=f"Allows '{action}' on {module}"))
+        db.commit()
+        print(f"✔ Permissions ensured ({len(MODULES) * len(ACTIONS)} total)")
+
+        all_permissions = db.query(Permission).all()
+        perm_by_code = {p.code: p for p in all_permissions}
+
+        # ---------------- Roles ----------------
+        for role_def in SYSTEM_ROLES:
+            role = db.query(Role).filter(Role.name == role_def["name"]).first()
+            if not role:
+                role = Role(name=role_def["name"], description=role_def["description"], is_system_role=role_def["is_system_role"])
+                db.add(role)
+                db.flush()
+            if role_def.get("all_permissions"):
+                role.permissions = all_permissions
+            else:
+                role.permissions = [perm_by_code[c] for c in role_def.get("permission_codes", []) if c in perm_by_code]
+        db.commit()
+        print(f"✔ System roles ensured ({len(SYSTEM_ROLES)})")
+
+        # ---------------- Countries & Cities ----------------
+        country_by_name = {}
+        for c in COUNTRIES:
+            country = db.query(Country).filter(Country.iso_code2 == c["iso_code2"]).first()
+            if not country:
+                country = Country(**c)
+                db.add(country)
+                db.flush()
+            country_by_name[c["name"]] = country
+        db.commit()
+
+        for country_name, city_names in CITIES.items():
+            country = country_by_name[country_name]
+            for city_name in city_names:
+                exists = db.query(City).filter(City.name == city_name, City.country_id == country.id).first()
+                if not exists:
+                    db.add(City(name=city_name, country_id=country.id))
+        db.commit()
+        print(f"✔ Countries ({len(COUNTRIES)}) and cities seeded")
+
+        # ---------------- Currencies ----------------
+        for cur in CURRENCIES:
+            exists = db.query(Currency).filter(Currency.code == cur["code"]).first()
+            if not exists:
+                db.add(Currency(**cur))
+        db.commit()
+        print(f"✔ Currencies ensured ({len(CURRENCIES)})")
+
+        base_currency = db.query(Currency).filter(Currency.is_base_currency.is_(True)).first()
+        us = country_by_name["United States"]
+        ny = db.query(City).filter(City.name == "New York").first()
+
+        # ---------------- Company Profile ----------------
+        profile = db.query(CompanyProfile).first()
+        if not profile:
+            profile = CompanyProfile(
+                legal_name="PMS Leasing Company LLC",
+                trade_name="PMS Leasing",
+                email="info@pms-demo.com",
+                phone="+1-555-0100",
+                address_line1="123 Main Street",
+                city_id=ny.id if ny else None,
+                country_id=us.id,
+                base_currency_id=base_currency.id if base_currency else None,
+                default_language="en",
+            )
+            db.add(profile)
+        db.commit()
+        print("✔ Company profile ensured")
+
+        # ---------------- Head Office Branch ----------------
+        branch = db.query(Branch).filter(Branch.code == "HO").first()
+        if not branch:
+            branch = Branch(
+                name="Head Office", code="HO", email="headoffice@pms-demo.com",
+                city_id=ny.id if ny else None, country_id=us.id, is_head_office=True,
+            )
+            db.add(branch)
+        db.commit()
+        print("✔ Head office branch ensured")
+
+        # ---------------- System Settings ----------------
+        for s in SYSTEM_SETTINGS:
+            exists = db.query(SystemSetting).filter(SystemSetting.key == s["key"]).first()
+            if not exists:
+                db.add(SystemSetting(**s))
+        db.commit()
+        print(f"✔ System settings ensured ({len(SYSTEM_SETTINGS)})")
+
+        # ---------------- Administrator Account ----------------
+        admin_role = db.query(Role).filter(Role.name == "Administrator").first()
+        admin = db.query(User).filter(User.email == settings.FIRST_ADMIN_EMAIL).first()
+        if not admin:
+            admin = User(
+                first_name="System",
+                last_name="Administrator",
+                email=settings.FIRST_ADMIN_EMAIL,
+                hashed_password=hash_password(settings.FIRST_ADMIN_PASSWORD),
+                is_active=True,
+                is_superuser=True,
+                role_id=admin_role.id if admin_role else None,
+                branch_id=branch.id,
+            )
+            db.add(admin)
+            db.commit()
+            print(f"✔ Administrator account created: {settings.FIRST_ADMIN_EMAIL} / {settings.FIRST_ADMIN_PASSWORD}")
+        else:
+            print(f"↷ Administrator account already exists: {settings.FIRST_ADMIN_EMAIL}")
+
+        # ---------------- Sample test users (for QA/testing) ----------------
+        manager_role = db.query(Role).filter(Role.name == "Branch Manager").first()
+        staff_role = db.query(Role).filter(Role.name == "Staff").first()
+        sample_users = [
+            {"first_name": "Maria", "last_name": "Manager", "email": "maria.manager@pms-demo.com", "role_id": manager_role.id if manager_role else None},
+            {"first_name": "Sam", "last_name": "Staff", "email": "sam.staff@pms-demo.com", "role_id": staff_role.id if staff_role else None},
+        ]
+        for u in sample_users:
+            if not db.query(User).filter(User.email == u["email"]).first():
+                db.add(User(
+                    first_name=u["first_name"], last_name=u["last_name"], email=u["email"],
+                    hashed_password=hash_password("ChangeMe!123"), is_active=True, is_superuser=False,
+                    role_id=u["role_id"], branch_id=branch.id,
+                ))
+        db.commit()
+        print("✔ Sample QA users ensured (maria.manager@pms-demo.com / sam.staff@pms-demo.com, password: ChangeMe!123)")
+
+        # ---------------- Sample Property Owners (Phase 2) ----------------
+        us_currency = db.query(Currency).filter(Currency.code == "USD").first()
+        la = db.query(City).filter(City.name == "Los Angeles").first()
+        dubai = db.query(City).filter(City.name == "Dubai").first()
+        uae = db.query(Country).filter(Country.iso_code2 == "AE").first()
+
+        if db.query(Owner).count() == 0:
+            individual_owner = Owner(
+                owner_code="OWN-000001",
+                owner_type="individual",
+                first_name="Robert",
+                last_name="Chen",
+                national_id="A1234567",
+                nationality_id=us.id,
+                primary_email="robert.chen" + chr(64) + "ownerdemo.com",
+                primary_phone="+1-555-0199",
+                branch_id=branch.id,
+            )
+            db.add(individual_owner)
+            db.flush()
+            db.add(OwnerAddress(owner_id=individual_owner.id, address_type="mailing", line1="456 Sunset Blvd", city_id=la.id if la else None, country_id=us.id, is_primary=True))
+            db.add(OwnerBankAccount(owner_id=individual_owner.id, bank_name="First National Bank", account_holder_name="Robert Chen", account_number="000123456789", currency_id=us_currency.id if us_currency else None, is_primary=True))
+
+            company_owner = Owner(
+                owner_code="OWN-000002",
+                owner_type="company",
+                company_name="Skyline Holdings LLC",
+                registration_number="REG-88213",
+                tax_number="TAX-99021",
+                contact_person_name="Amira Al-Farsi",
+                contact_person_title="Asset Manager",
+                primary_email="contact" + chr(64) + "skylineholdings.com",
+                primary_phone="+971-4-555-0100",
+                branch_id=branch.id,
+            )
+            db.add(company_owner)
+            db.flush()
+            db.add(OwnerAddress(owner_id=company_owner.id, address_type="mailing", line1="Office 1204, Business Bay Tower", city_id=dubai.id if dubai else None, country_id=uae.id if uae else None, is_primary=True))
+            db.add(OwnerContact(owner_id=company_owner.id, full_name="Amira Al-Farsi", designation="Asset Manager", email="amira" + chr(64) + "skylineholdings.com", phone="+971-4-555-0101", is_primary=True))
+
+            db.commit()
+            print("✔ Sample property owners ensured (OWN-000001 Robert Chen, OWN-000002 Skyline Holdings LLC)")
+        else:
+            print("↷ Property owners already exist, skipping sample owner seed")
+
+        # ---------------- Sample Lease Agreements (Phase 3) ----------------
+        if db.query(LeaseAgreement).count() == 0:
+            robert = db.query(Owner).filter(Owner.owner_code == "OWN-000001").first()
+            skyline = db.query(Owner).filter(Owner.owner_code == "OWN-000002").first()
+            today = date.today()
+
+            if robert:
+                active_lease = LeaseAgreement(
+                    contract_number="LSE-000001",
+                    owner_id=robert.id,
+                    branch_id=branch.id,
+                    property_reference="Unit 4B, 456 Sunset Blvd, Los Angeles — 2BR residential unit",
+                    start_date=today - timedelta(days=180),
+                    end_date=today + timedelta(days=185),
+                    signed_date=today - timedelta(days=190),
+                    is_renewable=True,
+                    renewal_notice_days=30,
+                    payment_frequency="monthly",
+                    rent_amount=Decimal("2500.00"),
+                    currency_id=us_currency.id if us_currency else None,
+                    security_deposit_amount=Decimal("5000.00"),
+                    security_deposit_status="held",
+                    contract_status=LeaseStatus.ACTIVE,
+                    notes_summary="Standard residential lease, auto-renewing tenant relationship.",
+                )
+                db.add(active_lease)
+
+            if skyline:
+                draft_lease = LeaseAgreement(
+                    contract_number="LSE-000002",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    property_reference="Floors 3-5, Business Bay Tower, Dubai — commercial office space",
+                    start_date=today + timedelta(days=15),
+                    end_date=today + timedelta(days=365 * 3),
+                    is_renewable=True,
+                    renewal_notice_days=60,
+                    payment_frequency="quarterly",
+                    rent_amount=Decimal("45000.00"),
+                    currency_id=None,
+                    security_deposit_amount=Decimal("90000.00"),
+                    security_deposit_status="held",
+                    contract_status=LeaseStatus.DRAFT,
+                    notes_summary="Pending signature; 3-year commercial lease under negotiation.",
+                )
+                db.add(draft_lease)
+
+            db.commit()
+            print("✔ Sample lease agreements ensured (LSE-000001 active, LSE-000002 draft)")
+        else:
+            print("↷ Lease agreements already exist, skipping sample lease seed")
+
+        # ---------------- Amenities catalog (Phase 4) ----------------
+        for a in AMENITIES:
+            if not db.query(Amenity).filter(Amenity.name == a["name"]).first():
+                db.add(Amenity(**a))
+        db.commit()
+        print(f"✔ Amenities catalog ensured ({len(AMENITIES)} items)")
+
+        # ---------------- Sample Properties (Phase 4) ----------------
+        if db.query(Property).count() == 0:
+            robert = db.query(Owner).filter(Owner.owner_code == "OWN-000001").first()
+            skyline = db.query(Owner).filter(Owner.owner_code == "OWN-000002").first()
+            pool = db.query(Amenity).filter(Amenity.name == "Swimming Pool").first()
+            parking_amenity = db.query(Amenity).filter(Amenity.name == "Parking").first()
+            security = db.query(Amenity).filter(Amenity.name == "24/7 Security").first()
+            elevator = db.query(Amenity).filter(Amenity.name == "Elevator").first()
+            dock = db.query(Amenity).filter(Amenity.name == "Loading Dock").first()
+
+            if robert:
+                villa = Property(
+                    property_code="PRP-000001",
+                    internal_code="VILLA-LA-01",
+                    property_type="villa",
+                    title="Sunset Villa",
+                    description="2BR standalone villa with private garden.",
+                    owner_id=robert.id,
+                    branch_id=branch.id,
+                    address_line1="456 Sunset Blvd",
+                    city_id=la.id if la else None,
+                    country_id=us.id,
+                    latitude=Decimal("34.098900"),
+                    longitude=Decimal("-118.329400"),
+                    area_sqm=Decimal("180.50"),
+                    bedrooms=2,
+                    bathrooms=2,
+                    furnishing_status="unfurnished",
+                    availability_status="leased",
+                )
+                if pool:
+                    villa.amenities.append(pool)
+                if parking_amenity:
+                    villa.amenities.append(parking_amenity)
+                db.add(villa)
+                db.flush()
+
+                active_lease = db.query(LeaseAgreement).filter(LeaseAgreement.contract_number == "LSE-000001").first()
+                if active_lease:
+                    active_lease.property_id = villa.id
+
+            if skyline:
+                building = Property(
+                    property_code="PRP-000002",
+                    internal_code="BBT-TOWER",
+                    property_type="building",
+                    title="Business Bay Tower",
+                    description="Commercial tower, floors 3-5 under company management.",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    address_line1="Business Bay",
+                    city_id=dubai.id if dubai else None,
+                    country_id=uae.id if uae else None,
+                    total_floors=20,
+                    year_built=2015,
+                    availability_status="available",
+                )
+                if security:
+                    building.amenities.append(security)
+                if elevator:
+                    building.amenities.append(elevator)
+                db.add(building)
+                db.flush()
+
+                floor_3 = Floor(building_id=building.id, floor_number="3", floor_name="Floor 3", total_units=4)
+                floor_4 = Floor(building_id=building.id, floor_number="4", floor_name="Floor 4", total_units=4)
+                floor_5 = Floor(building_id=building.id, floor_number="5", floor_name="Floor 5 — Penthouse", total_units=2)
+                db.add_all([floor_3, floor_4, floor_5])
+                db.flush()
+
+                parking_spot = Property(
+                    property_code="PRP-000005",
+                    internal_code="BBT-P-12",
+                    property_type="parking",
+                    parent_property_id=building.id,
+                    title="Business Bay Tower — Basement Parking Spot 12",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    city_id=dubai.id if dubai else None,
+                    country_id=uae.id if uae else None,
+                    availability_status="reserved",
+                )
+                storage_unit = Property(
+                    property_code="PRP-000006",
+                    internal_code="BBT-S-03",
+                    property_type="storage",
+                    parent_property_id=building.id,
+                    title="Business Bay Tower — Storage Unit 3",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    city_id=dubai.id if dubai else None,
+                    country_id=uae.id if uae else None,
+                    availability_status="reserved",
+                )
+                db.add_all([parking_spot, storage_unit])
+                db.flush()
+
+                office_unit = Property(
+                    property_code="PRP-000003",
+                    internal_code="BBT-F3",
+                    property_type="office",
+                    parent_property_id=building.id,
+                    title="Business Bay Tower — Floor 3 Office Suite",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    address_line1="Business Bay",
+                    city_id=dubai.id if dubai else None,
+                    country_id=uae.id if uae else None,
+                    floor_number="3",
+                    floor_id=floor_3.id,
+                    unit_number="301",
+                    rent_price=Decimal("15000.00"),
+                    electricity_meter_number="DEWA-EM-88213",
+                    water_meter_number="DEWA-WM-88213",
+                    parking_space_id=parking_spot.id,
+                    storage_space_id=storage_unit.id,
+                    area_sqm=Decimal("650.00"),
+                    furnishing_status="semi_furnished",
+                    availability_status="reserved",
+                )
+                db.add(office_unit)
+                db.flush()
+
+                draft_lease = db.query(LeaseAgreement).filter(LeaseAgreement.contract_number == "LSE-000002").first()
+                if draft_lease:
+                    draft_lease.property_id = building.id
+
+                warehouse = Property(
+                    property_code="PRP-000004",
+                    internal_code="WH-DXB-01",
+                    property_type="warehouse",
+                    title="Al Quoz Warehouse 12",
+                    owner_id=skyline.id,
+                    branch_id=branch.id,
+                    address_line1="Al Quoz Industrial Area 3",
+                    city_id=dubai.id if dubai else None,
+                    country_id=uae.id if uae else None,
+                    area_sqm=Decimal("2200.00"),
+                    availability_status="available",
+                )
+                if dock:
+                    warehouse.amenities.append(dock)
+                db.add(warehouse)
+
+            db.commit()
+            print("✔ Sample properties ensured (PRP-000001..000006: Villa, Building, Office unit, Warehouse, Parking, Storage)")
+            print("✔ Sample floors ensured (Floor 3/4/5 in Business Bay Tower)")
+        else:
+            print("↷ Properties already exist, skipping sample property seed")
+
+        # ---------------- Sample Tenants (Phase 6) ----------------
+        if db.query(Tenant).count() == 0:
+            individual_tenant = Tenant(
+                tenant_code="TNT-000001",
+                tenant_type="individual",
+                first_name="Laura",
+                last_name="Martinez",
+                national_id="B7654321",
+                passport_number="P1122334",
+                nationality_id=us.id,
+                primary_email="laura.martinez" + chr(64) + "tenantdemo.com",
+                primary_phone="+1-555-0177",
+                branch_id=branch.id,
+            )
+            db.add(individual_tenant)
+            db.flush()
+            db.add(TenantEmergencyContact(
+                tenant_id=individual_tenant.id, full_name="Carlos Martinez", relationship_type="spouse",
+                phone="+1-555-0178", is_primary=True,
+            ))
+
+            company_tenant = Tenant(
+                tenant_code="TNT-000002",
+                tenant_type="company",
+                company_name="Northwind Logistics FZE",
+                commercial_registration_number="CR-55012",
+                tax_number="TAX-77031",
+                contact_person_name="Farah Al-Sayed",
+                contact_person_title="Operations Manager",
+                primary_email="contact" + chr(64) + "northwindlogistics.com",
+                primary_phone="+971-4-555-0200",
+                branch_id=branch.id,
+            )
+            db.add(company_tenant)
+            db.flush()
+            db.add(TenantContact(
+                tenant_id=company_tenant.id, full_name="Farah Al-Sayed", designation="Operations Manager",
+                email="farah" + chr(64) + "northwindlogistics.com", phone="+971-4-555-0201", is_primary=True,
+            ))
+
+            blacklisted_tenant = Tenant(
+                tenant_code="TNT-000003",
+                tenant_type="individual",
+                first_name="Derek",
+                last_name="Voss",
+                national_id="C9988776",
+                primary_email="derek.voss" + chr(64) + "tenantdemo.com",
+                primary_phone="+1-555-0199",
+                branch_id=branch.id,
+                is_blacklisted=True,
+                blacklist_reason="Repeated late rent payments and property damage at previous unit.",
+                blacklisted_at=datetime.now(),
+            )
+            db.add(blacklisted_tenant)
+
+            db.commit()
+            print("✔ Sample tenants ensured (TNT-000001 Laura Martinez, TNT-000002 Northwind Logistics FZE, TNT-000003 Derek Voss [blacklisted])")
+        else:
+            print("↷ Tenants already exist, skipping sample tenant seed")
+
+        # ---------------- Sample Rental Contracts (Phase 7) ----------------
+        if db.query(RentalContract).count() == 0:
+            laura = db.query(Tenant).filter(Tenant.tenant_code == "TNT-000001").first()
+            northwind = db.query(Tenant).filter(Tenant.tenant_code == "TNT-000002").first()
+            villa = db.query(Property).filter(Property.property_code == "PRP-000001").first()
+            warehouse = db.query(Property).filter(Property.property_code == "PRP-000004").first()
+            today = date.today()
+
+            if laura and villa:
+                active_rental = RentalContract(
+                    contract_number="RNT-000001",
+                    tenant_id=laura.id,
+                    property_id=villa.id,
+                    branch_id=branch.id,
+                    start_date=today - timedelta(days=150),
+                    end_date=today + timedelta(days=215),
+                    signed_date=today - timedelta(days=155),
+                    is_renewable=True,
+                    renewal_notice_days=30,
+                    payment_frequency="monthly",
+                    rent_amount=Decimal("3200.00"),
+                    currency_id=us_currency.id if us_currency else None,
+                    security_deposit_amount=Decimal("6400.00"),
+                    security_deposit_status="held",
+                    discount_type="fixed",
+                    discount_value=Decimal("100.00"),
+                    discount_reason="Loyalty discount — long-term tenant",
+                    tax_rate=Decimal("0.00"),
+                    late_fee_type="fixed",
+                    late_fee_value=Decimal("50.00"),
+                    late_fee_grace_period_days=5,
+                    contract_status=RentalContractStatus.ACTIVE,
+                    notes_summary="Sub-leased from Sunset Villa (PRP-000001), leased from owner Robert Chen under LSE-000001.",
+                )
+                db.add(active_rental)
+                villa.availability_status = "leased"
+
+            if northwind and warehouse:
+                draft_rental = RentalContract(
+                    contract_number="RNT-000002",
+                    tenant_id=northwind.id,
+                    property_id=warehouse.id,
+                    branch_id=branch.id,
+                    start_date=today + timedelta(days=10),
+                    end_date=today + timedelta(days=375),
+                    is_renewable=True,
+                    renewal_notice_days=45,
+                    payment_frequency="quarterly",
+                    rent_amount=Decimal("18000.00"),
+                    security_deposit_amount=Decimal("36000.00"),
+                    security_deposit_status="held",
+                    discount_type="none",
+                    tax_rate=Decimal("5.00"),
+                    late_fee_type="percentage",
+                    late_fee_value=Decimal("2.00"),
+                    late_fee_grace_period_days=7,
+                    contract_status=RentalContractStatus.DRAFT,
+                    notes_summary="Pending signature; warehouse sublease for logistics operations.",
+                )
+                db.add(draft_rental)
+
+            db.commit()
+            print("✔ Sample rental contracts ensured (RNT-000001 active w/ discount+late fee, RNT-000002 draft w/ tax)")
+        else:
+            print("↷ Rental contracts already exist, skipping sample rental seed")
+
+        # ---------------- Sample Financial Data (Phase 8) ----------------
+        if db.query(FinancialAccount).count() == 0:
+            cash_account = FinancialAccount(
+                account_code="ACC-000001", account_type="cash", name="Petty Cash — Head Office",
+                branch_id=branch.id, opening_balance=Decimal("2000.00"), is_default=True,
+            )
+            bank_account = FinancialAccount(
+                account_code="ACC-000002", account_type="bank", name="Main Operating Account",
+                bank_name="First National Bank", account_number="0091827364", iban="US00FNB0091827364",
+                currency_id=us_currency.id if us_currency else None, branch_id=branch.id,
+                opening_balance=Decimal("50000.00"),
+            )
+            db.add_all([cash_account, bank_account])
+            db.flush()
+
+            laura = db.query(Tenant).filter(Tenant.tenant_code == "TNT-000001").first()
+            robert = db.query(Owner).filter(Owner.owner_code == "OWN-000001").first()
+            active_rental = db.query(RentalContract).filter(RentalContract.contract_number == "RNT-000001").first()
+            today = date.today()
+
+            # ---------------- Rental Receipt Module demo data ----------------
+            if active_rental and db.query(RentalPaymentInstallment).filter(RentalPaymentInstallment.contract_id == active_rental.id).count() == 0:
+                last_month_due = today.replace(day=1) - timedelta(days=1)
+                db.add(RentalPaymentInstallment(
+                    contract_id=active_rental.id, installment_number=1, due_date=last_month_due,
+                    amount=active_rental.rent_amount, discount_amount=active_rental.discount_value or Decimal("0"),
+                    payment_status=RentalInstallmentStatus.PAID, paid_date=last_month_due + timedelta(days=3),
+                    payment_method="bank_transfer", reference_number="REF-88213",
+                    receipt_number="RR-000001", printed_at=datetime.utcnow() - timedelta(days=25), print_count=1,
+                ))
+                db.add(RentalPaymentInstallment(
+                    contract_id=active_rental.id, installment_number=2, due_date=today.replace(day=1),
+                    amount=active_rental.rent_amount, discount_amount=active_rental.discount_value or Decimal("0"),
+                    payment_status=RentalInstallmentStatus.PENDING,
+                    receipt_number="RR-000002", printed_at=datetime.utcnow() - timedelta(days=1), print_count=1,
+                ))
+                db.commit()
+                print("✔ Sample rental receipts ensured (RR-000001 confirmed/paid, RR-000002 generated & printed, awaiting payment confirmation)")
+
+            if laura and active_rental:
+                payment_txn = Transaction(
+                    transaction_number="TXN-000001", transaction_type=TransactionType.TENANT_PAYMENT,
+                    direction=TransactionDirection.IN, amount=Decimal("3100.00"), account_id=bank_account.id,
+                    tenant_id=laura.id, rental_contract_id=active_rental.id, property_id=active_rental.property_id,
+                    payment_method="bank_transfer", reference_number="REF-88213",
+                    transaction_date=today - timedelta(days=20), description="Monthly rent — Sunset Villa",
+                )
+                db.add(payment_txn)
+                db.flush()
+                db.add(Receipt(receipt_number="RCP-000001", transaction_id=payment_txn.id, issued_date=payment_txn.transaction_date))
+
+            if robert:
+                owner_payment_txn = Transaction(
+                    transaction_number="TXN-000002", transaction_type=TransactionType.OWNER_PAYMENT,
+                    direction=TransactionDirection.OUT, amount=Decimal("2500.00"), account_id=bank_account.id,
+                    owner_id=robert.id, property_id=active_rental.property_id if active_rental else None,
+                    payment_method="bank_transfer", reference_number="REF-88214",
+                    transaction_date=today - timedelta(days=18), description="Monthly lease payment to owner — LSE-000001",
+                )
+                db.add(owner_payment_txn)
+                db.flush()
+                db.add(Receipt(receipt_number="RCP-000002", transaction_id=owner_payment_txn.id, issued_date=owner_payment_txn.transaction_date))
+
+            business_bay_tower = db.query(Property).filter(Property.property_code == "PRP-000002").first()
+
+            db.add(Transaction(
+                transaction_number="TXN-000003", transaction_type=TransactionType.EXPENSE,
+                direction=TransactionDirection.OUT, amount=Decimal("450.00"), account_id=cash_account.id,
+                category="maintenance", property_id=active_rental.property_id if active_rental else None,
+                transaction_date=today - timedelta(days=10),
+                description="Plumbing repair — Sunset Villa",
+            ))
+            db.add(Transaction(
+                transaction_number="TXN-000004", transaction_type=TransactionType.INCOME,
+                direction=TransactionDirection.IN, amount=Decimal("150.00"), account_id=cash_account.id,
+                category="parking_fee", property_id=business_bay_tower.id if business_bay_tower else None,
+                transaction_date=today - timedelta(days=5),
+                description="Guest parking fee — Business Bay Tower",
+            ))
+
+            transfer_out = Transaction(
+                transaction_number="TXN-000005", transaction_type=TransactionType.TRANSFER_OUT,
+                direction=TransactionDirection.OUT, amount=Decimal("500.00"), account_id=bank_account.id,
+                transaction_date=today - timedelta(days=2), description="Transfer to Petty Cash",
+            )
+            db.add(transfer_out)
+            db.flush()
+            transfer_in = Transaction(
+                transaction_number="TXN-000006", transaction_type=TransactionType.TRANSFER_IN,
+                direction=TransactionDirection.IN, amount=Decimal("500.00"), account_id=cash_account.id,
+                transfer_pair_id=transfer_out.id, transaction_date=today - timedelta(days=2),
+                description="Transfer from Main Operating Account",
+            )
+            db.add(transfer_in)
+            db.flush()
+            transfer_out.transfer_pair_id = transfer_in.id
+
+            if laura:
+                db.add(Invoice(
+                    invoice_number="INV-000001", tenant_id=laura.id,
+                    rental_contract_id=active_rental.id if active_rental else None,
+                    property_id=active_rental.property_id if active_rental else None,
+                    amount=Decimal("3100.00"), issue_date=today, due_date=today + timedelta(days=15),
+                    invoice_status=InvoiceStatus.DRAFT, description="Next month's rent — Sunset Villa",
+                ))
+
+            # ---------------- Rent Billing Engine sample invoice ----------------
+            if laura and active_rental and db.query(Invoice).filter(Invoice.invoice_number == "INV-000002").count() == 0:
+                period_start = today.replace(day=1)
+                db.add(Invoice(
+                    invoice_number="INV-000002", tenant_id=laura.id,
+                    rental_contract_id=active_rental.id, property_id=active_rental.property_id,
+                    amount=Decimal("3100.00"), amount_paid=Decimal("1500.00"),
+                    issue_date=period_start, due_date=period_start + timedelta(days=15),
+                    invoice_status=InvoiceStatus.PARTIALLY_PAID,
+                    description=f"Rent for {period_start.strftime('%B %Y')}",
+                    billing_cycle="monthly", billing_period_start=period_start,
+                    billing_period_end=period_start + timedelta(days=29),
+                    snapshot={
+                        "tenant_name": "Laura Martinez", "tenant_address": laura.address,
+                        "property_title": "Sunset Villa", "contract_number": active_rental.contract_number,
+                        "rent_amount": "3100.00", "company_name": "Demo Property Management Co.",
+                    },
+                    print_count=1, printed_at=datetime.utcnow() - timedelta(days=2),
+                    qr_token=str(uuid.uuid4()),
+                ))
+
+            db.commit()
+            print("✔ Sample financial data ensured (2 accounts, 6 transactions, 2 receipts, 1 draft invoice, 1 partially-paid billing-engine invoice)")
+        else:
+            print("↷ Financial data already exists, skipping sample financial seed")
+
+        # ---------------- Sample Maintenance Data (Phase 9) ----------------
+        if db.query(Contractor).count() == 0:
+            contractor = Contractor(
+                contractor_code="CON-000001", company_name="CoolBreeze HVAC Services",
+                contact_person="Amir Hassan", phone="+971-4-555-0142",
+                email="dispatch" + chr(64) + "coolbreeze-hvac.example.com",
+                specialty="hvac", hourly_rate=Decimal("85.00"),
+                notes="Preferred vendor for HVAC repairs across all branches.",
+            )
+            db.add(contractor)
+            db.flush()
+
+            in_house_tech = Technician(
+                technician_code="TEC-000001", first_name="Yusuf", last_name="Odeh",
+                phone="+971-50-555-0199", specialty="plumbing", hourly_rate=Decimal("45.00"),
+                notes="In-house maintenance staff, Head Office branch.",
+            )
+            contracted_tech = Technician(
+                technician_code="TEC-000002", first_name="Priya", last_name="Nair",
+                phone="+971-50-555-0173", specialty="hvac", contractor_id=contractor.id,
+                hourly_rate=Decimal("65.00"), notes="Senior HVAC technician at CoolBreeze.",
+            )
+            db.add_all([in_house_tech, contracted_tech])
+            db.flush()
+
+            villa = db.query(Property).filter(Property.property_code == "PRP-000001").first()
+            warehouse = db.query(Property).filter(Property.property_code == "PRP-000004").first()
+            laura = db.query(Tenant).filter(Tenant.tenant_code == "TNT-000001").first()
+            today = date.today()
+
+            if villa:
+                completed_request = MaintenanceRequest(
+                    request_number="MNT-000001", property_id=villa.id,
+                    tenant_id=laura.id if laura else None,
+                    title="Kitchen sink leak", description="Slow leak under the kitchen sink, water pooling in the cabinet.",
+                    category="plumbing", priority=MaintenancePriority.HIGH,
+                    maintenance_status=MaintenanceRequestStatus.COMPLETED,
+                    reported_date=today - timedelta(days=20), scheduled_date=today - timedelta(days=18),
+                    completed_date=today - timedelta(days=15),
+                    assigned_technician_id=in_house_tech.id, estimated_cost=Decimal("150.00"),
+                )
+                db.add(completed_request)
+                db.flush()
+                db.add(MaintenanceMaterial(request_id=completed_request.id, name="P-trap fitting", quantity=Decimal("1"), unit_cost=Decimal("18.50"), supplier="Ace Hardware"))
+                db.add(MaintenanceMaterial(request_id=completed_request.id, name="Plumber's sealant tape", quantity=Decimal("2"), unit_cost=Decimal("4.25"), supplier="Ace Hardware"))
+                db.add(MaintenanceLaborCost(
+                    request_id=completed_request.id, technician_id=in_house_tech.id,
+                    work_date=today - timedelta(days=18), hours=Decimal("2.5"), hourly_rate=Decimal("45.00"),
+                    description="Diagnosed and replaced P-trap fitting, resealed connections.",
+                ))
+
+            if warehouse:
+                in_progress_request = MaintenanceRequest(
+                    request_number="MNT-000002", property_id=warehouse.id,
+                    title="HVAC unit not cooling", description="Main warehouse HVAC unit blowing warm air, urgent given stored inventory.",
+                    category="hvac", priority=MaintenancePriority.URGENT,
+                    maintenance_status=MaintenanceRequestStatus.IN_PROGRESS,
+                    reported_date=today - timedelta(days=3), scheduled_date=today,
+                    assigned_contractor_id=contractor.id, assigned_technician_id=contracted_tech.id,
+                    estimated_cost=Decimal("600.00"),
+                )
+                db.add(in_progress_request)
+                db.flush()
+                db.add(MaintenanceLaborCost(
+                    request_id=in_progress_request.id, technician_id=contracted_tech.id, contractor_id=contractor.id,
+                    work_date=today - timedelta(days=1), hours=Decimal("3.0"), hourly_rate=Decimal("65.00"),
+                    description="Initial diagnostic — compressor issue suspected, parts on order.",
+                ))
+
+                reported_request = MaintenanceRequest(
+                    request_number="MNT-000003", property_id=warehouse.id,
+                    title="Loading dock light out", description="One of the loading dock exterior lights is not turning on at night.",
+                    category="electrical", priority=MaintenancePriority.MEDIUM,
+                    maintenance_status=MaintenanceRequestStatus.REPORTED,
+                    reported_date=today,
+                )
+                db.add(reported_request)
+
+            # ---- Maintenance Contracts extension: recurring/annual service
+            # contracts (elevators, HVAC/AC) — separate from the ad-hoc
+            # requests above. ----
+            elevator_contractor = Contractor(
+                contractor_code="CON-000002", company_name="SkyLift Elevator Services",
+                contact_person="Nadia Fares", phone="+971-4-555-0188",
+                email="service" + chr(64) + "skylift-elevators.example.com",
+                specialty="elevator", hourly_rate=Decimal("95.00"),
+                notes="Certified elevator maintenance & inspection vendor.",
+            )
+            db.add(elevator_contractor)
+            db.flush()
+
+            # Queried directly (not reused from the Financial Data block
+            # above) so this seed step works standalone regardless of
+            # whether that other block ran in this pass.
+            elevator_building = db.query(Property).filter(Property.property_code == "PRP-000002").first()
+
+            if elevator_building:
+                elevator_contract = MaintenanceContract(
+                    contract_number="MTC-000001", property_id=elevator_building.id,
+                    contractor_id=elevator_contractor.id, service_type="elevator",
+                    title="Annual Elevator Maintenance Contract — Business Bay Tower",
+                    description="Quarterly inspection & servicing of all building elevators, per municipality safety code.",
+                    start_date=today.replace(month=1, day=1), end_date=today.replace(month=12, day=31),
+                    signed_date=today.replace(month=1, day=1) - timedelta(days=5),
+                    visit_frequency="quarterly", visits_per_year=4,
+                    next_service_due_date=today + timedelta(days=25),
+                    annual_cost=Decimal("8400.00"), contract_status=MaintenanceContractStatus.ACTIVE,
+                    notes="Covers 2 passenger elevators. Emergency callouts billed separately.",
+                )
+                db.add(elevator_contract)
+
+            if villa:
+                ac_contract = MaintenanceContract(
+                    contract_number="MTC-000002", property_id=villa.id,
+                    contractor_id=contractor.id, service_type="hvac",
+                    title="Annual AC Maintenance Contract — Sunset Villa",
+                    description="Bi-annual AC unit servicing (filter cleaning, gas check, coil cleaning) ahead of summer/winter seasons.",
+                    start_date=today.replace(month=1, day=1), end_date=today.replace(month=12, day=31),
+                    signed_date=today.replace(month=1, day=1) - timedelta(days=3),
+                    visit_frequency="semi_annual", visits_per_year=2,
+                    next_service_due_date=today + timedelta(days=10),
+                    annual_cost=Decimal("1200.00"), contract_status=MaintenanceContractStatus.ACTIVE,
+                    notes="Covers all split units on the property.",
+                )
+                db.add(ac_contract)
+
+            db.commit()
+            print("✔ Sample maintenance data ensured (2 contractors, 2 technicians, 3 requests, 2 recurring service contracts: elevator + AC)")
+        else:
+            print("↷ Maintenance data already exists, skipping sample maintenance seed")
+
+        # ---------------- Sample Accounting Data (Phase 10) ----------------
+        if db.query(ChartOfAccount).count() == 0:
+            today = date.today()
+
+            def coa(code, name, acc_type, parent=None, allow_posting=True):
+                acct = ChartOfAccount(account_code=code, account_name=name, account_type=acc_type, parent_account_id=parent.id if parent else None, allow_posting=allow_posting)
+                db.add(acct)
+                db.flush()
+                return acct
+
+            assets = coa("1000", "Assets", "asset", allow_posting=False)
+            current_assets = coa("1100", "Current Assets", "asset", parent=assets, allow_posting=False)
+            cash_on_hand = coa("1110", "Cash on Hand", "asset", parent=current_assets)
+            bank_operating = coa("1120", "Bank - Operating Account", "asset", parent=current_assets)
+
+            liabilities = coa("2000", "Liabilities", "liability", allow_posting=False)
+            current_liabilities = coa("2100", "Current Liabilities", "liability", parent=liabilities, allow_posting=False)
+            security_deposits = coa("2110", "Security Deposits Held", "liability", parent=current_liabilities)
+            vat_control = coa("2200", "VAT Control", "liability", parent=current_liabilities)
+
+            equity = coa("3000", "Equity", "equity", allow_posting=False)
+            retained_earnings = coa("3100", "Retained Earnings", "equity", parent=equity)
+
+            revenue = coa("4000", "Revenue", "revenue", allow_posting=False)
+            rental_income = coa("4100", "Rental Income", "revenue", parent=revenue)
+            other_income = coa("4200", "Other Income", "revenue", parent=revenue)
+
+            expenses = coa("5000", "Expenses", "expense", allow_posting=False)
+            maintenance_expense = coa("5100", "Maintenance Expense", "expense", parent=expenses)
+            owner_disbursements = coa("5200", "Owner Disbursements", "expense", parent=expenses)
+            refunds_issued = coa("5300", "Refunds Issued", "expense", parent=expenses)
+            general_expense = coa("5900", "General Operating Expense", "expense", parent=expenses)
+
+            # Link Phase 8 Cash/Bank accounts to their GL ledger accounts so
+            # Automatic Posting knows which GL account to hit.
+            cash_account = db.query(FinancialAccount).filter(FinancialAccount.account_code == "ACC-000001").first()
+            bank_account = db.query(FinancialAccount).filter(FinancialAccount.account_code == "ACC-000002").first()
+            if cash_account:
+                cash_account.gl_account_id = cash_on_hand.id
+            if bank_account:
+                bank_account.gl_account_id = bank_operating.id
+
+            villa = db.query(Property).filter(Property.property_code == "PRP-000001").first()
+            warehouse = db.query(Property).filter(Property.property_code == "PRP-000004").first()
+            cc_villa = CostCenter(cost_center_code="CC-000001", name="Sunset Villa Operations", property_id=villa.id if villa else None)
+            cc_warehouse = CostCenter(cost_center_code="CC-000002", name="Warehouse Operations", property_id=warehouse.id if warehouse else None)
+            db.add_all([cc_villa, cc_warehouse])
+            db.flush()
+
+            vat_std = VatRate(code="STD5", name="Standard Rate 5%", rate_percentage=Decimal("5.00"), gl_account_id=vat_control.id)
+            vat_zero = VatRate(code="ZERO0", name="Zero-Rated 0%", rate_percentage=Decimal("0.00"))
+            db.add_all([vat_std, vat_zero])
+            db.flush()
+
+            # Posting rules left VAT-free by default — Phase 8 amounts were
+            # recorded without a tax-inclusive assumption, so applying VAT
+            # retroactively to the default mapping would silently change
+            # what those historical dollar amounts mean. VAT-aware rules can
+            # be added deliberately (see docs/phase10-validation-rules.md).
+            db.add_all([
+                PostingRule(transaction_type="tenant_payment", offset_account_id=rental_income.id),
+                PostingRule(transaction_type="owner_payment", offset_account_id=owner_disbursements.id),
+                PostingRule(transaction_type="expense", offset_account_id=general_expense.id),
+                PostingRule(transaction_type="expense", category="maintenance", offset_account_id=maintenance_expense.id),
+                PostingRule(transaction_type="income", offset_account_id=other_income.id),
+                PostingRule(transaction_type="deposit_received", offset_account_id=security_deposits.id),
+                PostingRule(transaction_type="deposit_refund", offset_account_id=security_deposits.id),
+                PostingRule(transaction_type="refund", offset_account_id=refunds_issued.id),
+            ])
+            db.flush()
+
+            # Opening balances entry — matches the Phase 8 opening_balance
+            # figures already seeded on ACC-000001 / ACC-000002.
+            opening_entry = JournalEntry(
+                entry_number="JE-000001", entry_date=today - timedelta(days=30),
+                description="Opening balances", source_type=SourceType.MANUAL,
+                entry_status=EntryStatus.POSTED, posted_at=datetime.utcnow(),
+            )
+            db.add(opening_entry)
+            db.flush()
+            db.add_all([
+                JournalEntryLine(journal_entry_id=opening_entry.id, account_id=cash_on_hand.id, debit_amount=Decimal("2000.00"), credit_amount=0, description="Opening cash balance"),
+                JournalEntryLine(journal_entry_id=opening_entry.id, account_id=bank_operating.id, debit_amount=Decimal("50000.00"), credit_amount=0, description="Opening bank balance"),
+                JournalEntryLine(journal_entry_id=opening_entry.id, account_id=retained_earnings.id, debit_amount=0, credit_amount=Decimal("52000.00"), description="Opening retained earnings"),
+            ])
+
+            # Demonstration system-style entries mirroring what Automatic
+            # Posting will now produce going forward for new transactions.
+            # (The 6 Phase 8 sample transactions were inserted directly,
+            # bypassing the service layer/hook — same seeding pattern used
+            # in every prior phase — so these are seeded explicitly here to
+            # keep the ledger consistent with the seeded transactions.)
+            tenant_payment_txn = db.query(Transaction).filter(Transaction.transaction_number == "TXN-000001").first()
+            owner_payment_txn = db.query(Transaction).filter(Transaction.transaction_number == "TXN-000002").first()
+
+            if tenant_payment_txn:
+                je2 = JournalEntry(
+                    entry_number="JE-000002", entry_date=tenant_payment_txn.transaction_date,
+                    description=f"Auto-posted: {tenant_payment_txn.transaction_number} (tenant_payment)",
+                    reference_number=tenant_payment_txn.transaction_number, source_type=SourceType.SYSTEM,
+                    source_transaction_id=tenant_payment_txn.id, entry_status=EntryStatus.POSTED, posted_at=datetime.utcnow(),
+                )
+                db.add(je2)
+                db.flush()
+                db.add_all([
+                    JournalEntryLine(journal_entry_id=je2.id, account_id=bank_operating.id, property_id=tenant_payment_txn.property_id, debit_amount=tenant_payment_txn.amount, credit_amount=0),
+                    JournalEntryLine(journal_entry_id=je2.id, account_id=rental_income.id, cost_center_id=cc_villa.id, property_id=tenant_payment_txn.property_id, debit_amount=0, credit_amount=tenant_payment_txn.amount),
+                ])
+
+            if owner_payment_txn:
+                je3 = JournalEntry(
+                    entry_number="JE-000003", entry_date=owner_payment_txn.transaction_date,
+                    description=f"Auto-posted: {owner_payment_txn.transaction_number} (owner_payment)",
+                    reference_number=owner_payment_txn.transaction_number, source_type=SourceType.SYSTEM,
+                    source_transaction_id=owner_payment_txn.id, entry_status=EntryStatus.POSTED, posted_at=datetime.utcnow(),
+                )
+                db.add(je3)
+                db.flush()
+                db.add_all([
+                    JournalEntryLine(journal_entry_id=je3.id, account_id=owner_disbursements.id, cost_center_id=cc_villa.id, property_id=owner_payment_txn.property_id, debit_amount=owner_payment_txn.amount, credit_amount=0),
+                    JournalEntryLine(journal_entry_id=je3.id, account_id=bank_operating.id, property_id=owner_payment_txn.property_id, debit_amount=0, credit_amount=owner_payment_txn.amount),
+                ])
+
+            # A draft entry left unposted, to exercise the draft -> post workflow.
+            draft_entry = JournalEntry(
+                entry_number="JE-000004", entry_date=today, description="Accrued general expense (pending review)",
+                source_type=SourceType.MANUAL, entry_status=EntryStatus.DRAFT,
+            )
+            db.add(draft_entry)
+            db.flush()
+            db.add_all([
+                JournalEntryLine(journal_entry_id=draft_entry.id, account_id=general_expense.id, debit_amount=Decimal("300.00"), credit_amount=0, description="Pending office supplies invoice"),
+                JournalEntryLine(journal_entry_id=draft_entry.id, account_id=cash_on_hand.id, debit_amount=0, credit_amount=Decimal("300.00"), description="Pending office supplies invoice"),
+            ])
+
+            db.commit()
+            print("✔ Sample accounting data ensured (15 GL accounts, 2 cost centers, 2 VAT rates, 8 posting rules, 4 journal entries [3 posted incl. opening balances, 1 draft])")
+        else:
+            print("↷ Accounting data already exists, skipping sample accounting seed")
+
+        # ---------------- Sample Report Schedules (Enterprise Reporting) ----------------
+        if db.query(ReportSchedule).count() == 0:
+            now = datetime.utcnow()
+            db.add_all([
+                ReportSchedule(
+                    name="Monthly Financial Report", report_type="financial", export_format=ReportExportFormat.PDF,
+                    frequency=ReportFrequency.MONTHLY, filters=None, is_active=True, next_run_at=now + timedelta(days=30),
+                ),
+                ReportSchedule(
+                    name="Weekly Maintenance Summary", report_type="maintenance", export_format=ReportExportFormat.EXCEL,
+                    frequency=ReportFrequency.WEEKLY, filters=None, is_active=True, next_run_at=now + timedelta(days=7),
+                ),
+                ReportSchedule(
+                    name="Daily Collections Snapshot", report_type="collections", export_format=ReportExportFormat.PDF,
+                    frequency=ReportFrequency.DAILY, filters={"months": 3}, is_active=False, next_run_at=now + timedelta(days=1),
+                ),
+            ])
+            db.commit()
+            print("✔ Sample report schedules ensured (3 schedules: monthly financial PDF, weekly maintenance Excel, daily collections PDF [inactive])")
+        else:
+            print("↷ Report schedules already exist, skipping sample schedule seed")
+
+        print("\n✅ Seed complete.")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    run()
