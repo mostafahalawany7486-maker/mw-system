@@ -56,8 +56,7 @@ services:
     # just also on Render. Safe to run on every boot: both are
     # idempotent (migrations no-op if already applied; seed.py checks
     # "already exists, skipping" before inserting anything).
-    dockerCommand: >
-      sh -c "alembic upgrade head && python seed.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+    dockerCommand: sh start.sh
     healthCheckPath: /health
     envVars:
       - key: APP_NAME
