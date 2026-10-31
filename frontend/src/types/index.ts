@@ -1380,6 +1380,8 @@ export interface VacantPropertyItem {
   title: string;
   property_type: string;
   days_vacant: number;
+  last_tenant: string | null;
+  last_rent_amount: string | number | null;
 }
 
 export interface VacancyReport {
@@ -1481,6 +1483,8 @@ export interface ProfitReport {
   profit_margin_percentage: string;
   by_property: ProfitByPropertyItem[];
   trend: ProfitTrendPoint[];
+  best_performing_property: ProfitByPropertyItem | null;
+  lowest_performing_property: ProfitByPropertyItem | null;
 }
 
 export interface DashboardKPIs {

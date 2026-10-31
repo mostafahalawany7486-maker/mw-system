@@ -19,7 +19,8 @@ export default function ReportExportBar({ reportType, filters }: Props) {
         params: { ...filters, format },
         responseType: "blob",
       });
-      const blob = new Blob([data], { type: headers["content-type"] });
+      const contentType = typeof headers["content-type"] === "string" ? headers["content-type"] : undefined;
+      const blob = new Blob([data], { type: contentType });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;

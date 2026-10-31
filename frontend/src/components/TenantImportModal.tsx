@@ -24,7 +24,8 @@ export default function TenantImportModal({
     setDownloading(true);
     try {
       const { data, headers } = await apiClient.get(`/tenants/import-template/${buildingId}`, { responseType: "blob" });
-      const blob = new Blob([data], { type: headers["content-type"] });
+      const contentType = typeof headers["content-type"] === "string" ? headers["content-type"] : undefined;
+      const blob = new Blob([data], { type: contentType });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;

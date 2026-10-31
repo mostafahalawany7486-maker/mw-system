@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useRef, useState } from "react";
 import { X, Inbox, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -175,8 +175,8 @@ export function ToolbarSearch({ value, onChange, placeholder }: { value: string;
 // presentational: pages choose to render <SkeletonCard /> etc. instead
 // of <Loader2 className="animate-spin" /> while `loading` is true; the
 // data-fetching logic that sets `loading` is completely untouched.
-export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`skeleton ${className}`} aria-hidden="true" />;
+export function Skeleton({ className = "", style }: { className?: string; style?: CSSProperties }) {
+  return <div className={`skeleton ${className}`} style={style} aria-hidden="true" />;
 }
 
 export function SkeletonText({ lines = 1, className = "" }: { lines?: number; className?: string }) {

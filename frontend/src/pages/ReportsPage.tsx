@@ -18,6 +18,9 @@ import {
 } from "@/types";
 
 type TabKey = "dashboard" | "financial" | "tenants" | "owners" | "properties" | "vacancy" | "occupancy" | "units" | "income" | "expenses" | "profit" | "leases" | "maintenance" | "collections" | "outstanding" | "expirations" | "schedules" | "ownerBalance" | "tenantLedger" | "securityDeposits" | "renewedContracts" | "topTenants" | "repeatedLatePayers";
+
+// Design-system-consistent palette, matching EnterpriseDashboardPage's brand/amber/rust scales.
+const CHART_COLORS = ["#0EA5E9", "#C2760C", "#B3402C", "#7DD3FC", "#75817A", "#9C5E09"];
 type TabGroup = "overview" | "financial" | "occupancy" | "people" | "contracts" | "operations";
 
 const TAB_GROUPS: { key: TabGroup; label: string; icon: string }[] = [
