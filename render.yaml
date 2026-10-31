@@ -78,9 +78,9 @@ services:
           name: pms-db
           property: connectionString
       - key: BACKEND_CORS_ORIGINS
-        value: https://pms-frontend.onrender.com
+        value: https://pms-frontend-x0qh.onrender.com
       - key: PUBLIC_APP_URL
-        value: https://pms-frontend.onrender.com
+        value: https://pms-frontend-x0qh.onrender.com
       - key: STORAGE_BACKEND
         value: local
       - key: LOCAL_STORAGE_PATH
@@ -108,4 +108,4 @@ services:
         value: public, max-age=31536000, immutable
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://pms-backend.onrender.com/api/v1
+        value: https://pms-backend-x0qh.onrender.com/api/v1
