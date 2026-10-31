@@ -99,7 +99,7 @@ class TenantImportService:
         ws.cell(row=2, column=1, value=(
             "Columns A–C are reference only (do not need to match anything — just showing you which unit each row is for). "
             "Fill in tenant details in the remaining columns, one row per tenant, then upload this file back. "
-            "Tenant Type, and either (First+Last Name) or Company Name, and at least one of Phone/Email are required per row."
+            "Tenant Type, and either (First+Last Name) or Company Name, are required per row. Phone and Email are optional."
         )).font = subtitle_font
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(COLUMNS))
         ws.row_dimensions[2].height = 30
@@ -239,9 +239,6 @@ class TenantImportService:
         elif tenant_type.lower() == "company":
             if not get("company_name"):
                 errors.append({"row": excel_row_num, "message": "Company Name is required for a company tenant."})
-
-        if not get("primary_phone") and not get("primary_email"):
-            errors.append({"row": excel_row_num, "message": "At least one of Primary Phone or Primary Email is required."})
 
         email = get("primary_email")
         if email and "@" not in email:

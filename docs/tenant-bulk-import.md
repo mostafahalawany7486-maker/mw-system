@@ -36,7 +36,7 @@ multi-building spreadsheet):
   spreadsheet dropdown is provided on that column to reduce typos).
 - `individual` rows require First Name + Last Name; `company` rows
   require Company Name.
-- At least one of Primary Phone / Primary Email is required.
+- Primary Phone and Primary Email are optional.
 - `National ID`, if given, must be unique — checked against both the
   existing database *and* other rows in the same file (a duplicate
   within the file is caught before anything is created, not just
